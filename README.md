@@ -47,6 +47,7 @@ Optional flags:
 | `--password` | `$COLLIBRA_PASSWORD` | Account password |
 | `--output` | `collibra_user_emails.csv` | Path to write the CSV report |
 | `--state` | `collibra_user_email_state.json` | Snapshot file used to detect changes between runs |
+| `--changelog` | `collibra_email_changelog.txt` | Plain-text log appended to whenever email changes are detected |
 
 ## What it does
 
@@ -75,6 +76,15 @@ Any detected change is also printed to stdout as:
 ```
 CHANGED: jdoe email is now 'jane.doe@newdomain.com' (was 'jdoe@olddomain.com'), last modified 2026-07-24 14:03:11 UTC by asmith
 ```
+
+**Changelog file:** the same lines are appended to `collibra_email_changelog.txt` (or your `--changelog` path) under a timestamped run header, so you keep a running history of every detected change across runs:
+
+```
+=== Run: 2026-07-24 14:03:20 UTC ===
+CHANGED: jdoe email is now 'jane.doe@newdomain.com' (was 'jdoe@olddomain.com'), last modified 2026-07-24 14:03:11 UTC by asmith
+```
+
+Nothing is written to the changelog on runs where no changes are detected.
 
 **Note:** on the very first run there's no prior snapshot to compare against, so no changes will be flagged — that run just establishes the baseline.
 
