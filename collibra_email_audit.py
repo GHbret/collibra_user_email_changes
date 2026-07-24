@@ -30,8 +30,10 @@ Each run:
        raw UUID if the modifying account no longer exists / isn't in the list,
        e.g. a system account).
   3. Compares to state.json from the previous run; any user whose email
-     differs from the prior snapshot is printed to stdout as CHANGED and
-     marked in the CSV's `email_changed_since_last_run` column.
+     differs from the prior snapshot is printed to stdout as CHANGED,
+     marked in the CSV's `email_changed_since_last_run` column, and appended
+     to collibra_email_changelog.txt under a timestamped run header (nothing
+     is written to the changelog on runs with no detected changes).
   4. Overwrites state.json with the current snapshot for next time.
 
 Schedule this (cron, Task Scheduler, CI job, etc.) to poll periodically.
@@ -151,8 +153,9 @@ def load_previous_state(state_file: str):
         return json.load(f)
 
 
-def write_report(csv_path: str, snapshot: dict, previous: dict):
+def write_report(csv_path: str, snapshot: dict, previous: dict, changelog_path: str = None):
     changed_count = 0
+    changed_lines = []
     with open(csv_path, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(["user", "email", "last_modified_on", "last_modified_by", "email_changed_since_last_run"])
@@ -165,11 +168,13 @@ def write_report(csv_path: str, snapshot: dict, previous: dict):
             changed = bool(prev) and prev.get("emailAddress") != info["emailAddress"]
             if changed:
                 changed_count += 1
-                print(
+                line = (
                     f"CHANGED: {info['userName']} email is now '{info['emailAddress']}' "
                     f"(was '{prev.get('emailAddress')}'), last modified {info['lastModifiedOnFormatted']} "
                     f"by {info['lastModifiedByName']}"
                 )
+                print(line)
+                changed_lines.append(line)
             writer.writerow([
                 info["userName"],
                 info["emailAddress"],
@@ -177,6 +182,17 @@ def write_report(csv_path: str, snapshot: dict, previous: dict):
                 info["lastModifiedByName"],
                 changed,
             ])
+
+    # Append any detected changes to a running plain-text changelog, one
+    # timestamped block per run. Nothing is written on runs with no changes.
+    if changelog_path and changed_lines:
+        run_stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        with open(changelog_path, "a") as f:
+            f.write(f"=== Run: {run_stamp} ===\n")
+            for line in changed_lines:
+                f.write(line + "\n")
+            f.write("\n")
+
     return changed_count
 
 
@@ -187,6 +203,7 @@ def main():
     parser.add_argument("--password", default=os.environ.get("COLLIBRA_PASSWORD"))
     parser.add_argument("--output", default="collibra_user_emails.csv", help="CSV report path")
     parser.add_argument("--state", default="collibra_user_email_state.json", help="Snapshot file used to detect changes across runs")
+    parser.add_argument("--changelog", default="collibra_email_changelog.txt", help="Plain-text log appended to whenever email changes are detected")
     args = parser.parse_args()
 
     if not (args.base_url and args.username and args.password):
@@ -199,7 +216,7 @@ def main():
     snapshot = build_snapshot(users)
     previous = load_previous_state(args.state)
 
-    changed_count = write_report(args.output, snapshot, previous)
+    changed_count = write_report(args.output, snapshot, previous, changelog_path=args.changelog)
 
     with open(args.state, "w") as f:
         json.dump(snapshot, f, indent=2)
